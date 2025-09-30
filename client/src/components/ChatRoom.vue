@@ -188,6 +188,7 @@ function sendChatMessage() {
   padding: 8px 12px;
   border-radius: 8px;
   max-width: 80%;
+  color: black;
 }
 .my-message {
   background-color: #dcf8c6;
