@@ -138,7 +138,8 @@ function setupPeerEvents(peer, peerId) {
 }
 
 function leaveRoom() {
-  window.location.reload(); // 간단하게 새로고침으로 퇴장 처리
+  // App.vue로 이벤트를 보내 로비 화면으로 돌아가도록 함
+  emit("leave");
 }
 
 function sendChatMessage() {
