@@ -21,42 +21,51 @@ app.get("/", (req, res) => {
   res.send("WebRTC Signaling Server is running!");
 });
 
+const users = {};
+
 // Socket.IO 시그널링 로직
 io.on("connection", (socket) => {
   console.log(`User Connected: ${socket.id}`);
 
-  // 채팅방 참여 이벤트
   socket.on("join_room", (roomName) => {
     socket.join(roomName);
-    console.log(`User ${socket.id} joined room: ${roomName}`);
-    // 방에 있는 다른 클라이언트에게 새로운 유저의 참여를 알림
-    socket.to(roomName).emit("user_joined", socket.id);
+    if (users[roomName]) {
+      const usersInThisRoom = users[roomName].filter((id) => id !== socket.id);
+      socket.emit("all_users", usersInThisRoom);
+    } else {
+      users[roomName] = [];
+    }
+    users[roomName].push(socket.id);
+    console.log(`User ${socket.id} joined room: ${roomName}. Users in room:`, users[roomName]);
   });
 
-  // WebRTC Offer 메시지 중계
-  socket.on("offer", (offer, roomName, senderId) => {
-    // Offer를 보낸 클라이언트를 제외한 다른 모든 클라이언트에게 Offer 전달
-    socket.to(roomName).emit("offer", offer, senderId);
-    console.log(`Offer from ${senderId} relayed to room: ${roomName}`);
+  socket.on("sending_signal", (payload) => {
+    io.to(payload.userToSignal).emit("user_joined", {
+      signal: payload.signal,
+      callerID: payload.callerID,
+    });
   });
 
-  // WebRTC Answer 메시지 중계
-  socket.on("answer", (answer, roomName, senderId) => {
-    socket.to(roomName).emit("answer", answer, senderId);
-    console.log(`Answer from ${senderId} relayed to room: ${roomName}`);
+  socket.on("returning_signal", (payload) => {
+    io.to(payload.callerID).emit("receiving_returned_signal", {
+      signal: payload.signal,
+      id: socket.id,
+    });
   });
 
-  // WebRTC ICE Candidate 메시지 중계
-  socket.on("ice_candidate", (candidate, roomName, senderId) => {
-    socket.to(roomName).emit("ice_candidate", candidate, senderId);
-    console.log(`ICE Candidate from ${senderId} relayed to room: ${roomName}`);
-  });
-
-  // 연결 종료 처리
   socket.on("disconnect", () => {
     console.log(`User Disconnected: ${socket.id}`);
-    // 필요하다면, 해당 유저가 속했던 모든 방에 퇴장했음을 알리는 로직을 추가할 수 있습니다.
-    // io.emit('user_left', socket.id);
+    for (const roomName in users) {
+      const room = users[roomName];
+      if (room.includes(socket.id)) {
+        users[roomName] = room.filter((id) => id !== socket.id);
+        socket.to(roomName).emit("user_left", socket.id);
+        if (users[roomName].length === 0) {
+          delete users[roomName];
+        }
+        break;
+      }
+    }
   });
 });
 
