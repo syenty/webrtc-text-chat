@@ -164,7 +164,6 @@ function sendChatMessage() {
 <template>
   <div class="chat-room">
     <div class="chat-container">
-      <h3>Room: {{ roomName }}</h3>
       <div class="chat-messages">
         <template v-for="(msg, index) in chatMessages" :key="index">
           <div v-if="msg.type === 'system'" class="system-message">
@@ -186,8 +185,9 @@ function sendChatMessage() {
         <button type="submit">Send</button>
       </form>
     </div>
-    <div class="controls">
-      <button @click="leaveRoom">Leave Room</button>
+    <div class="footer-controls">
+      <span class="room-info">Room: {{ roomName }}</span>
+      <button @click="leaveRoom" class="leave-button">Leave Room</button>
     </div>
   </div>
 </template>
@@ -196,7 +196,7 @@ function sendChatMessage() {
 .chat-room {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 90vh; /* 전체 높이를 약간 줄임 */
   max-width: 800px;
   margin: 0 auto;
   width: 100%;
@@ -209,7 +209,6 @@ function sendChatMessage() {
   padding: 1rem;
   background-color: #f9f9f9;
   flex-grow: 1;
-  margin-top: 2rem;
   overflow: hidden;
 }
 .chat-messages {
@@ -264,16 +263,22 @@ function sendChatMessage() {
   border-radius: 0 4px 4px 0;
   cursor: pointer;
 }
-.controls {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
+.footer-controls {
   display: flex;
-  gap: 1rem;
-  background: rgba(255, 255, 255, 0.9);
-  padding: 10px;
-  border-radius: 20px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  margin-top: 1rem;
+  background-color: #36454f; /* Charcoal */
+  color: white;
+  border-radius: 8px;
+}
+.leave-button {
+  padding: 6px 12px;
+  background-color: #f44336;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
 }
 </style>
