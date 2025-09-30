@@ -26,17 +26,29 @@ const users = {};
 // Socket.IO 시그널링 로직
 io.on("connection", (socket) => {
   console.log(`User Connected: ${socket.id}`);
+  // 소켓에 연결된 방 이름을 저장하기 위한 변수
+  let currentRoom = null;
 
-  socket.on("join_room", (roomName) => {
+  socket.on("join_room", ({ roomName, nickname }) => {
+    // 닉네임 중복 체크
+    if (users[roomName] && users[roomName].some((user) => user.nickname === nickname)) {
+      socket.emit("join_failed", "This nickname is already taken in the room.");
+      return;
+    }
+
     socket.join(roomName);
+    currentRoom = roomName; // 현재 방 이름 저장
+
     if (users[roomName]) {
-      const usersInThisRoom = users[roomName].filter((id) => id !== socket.id);
+      const usersInThisRoom = users[roomName];
       socket.emit("all_users", usersInThisRoom);
     } else {
       users[roomName] = [];
     }
-    users[roomName].push(socket.id);
-    console.log(`User ${socket.id} joined room: ${roomName}. Users in room:`, users[roomName]);
+    users[roomName].push({ id: socket.id, nickname });
+    console.log(`User ${nickname}(${socket.id}) joined room: ${roomName}.`);
+
+    socket.to(roomName).emit("user_joined_info", { id: socket.id, nickname });
   });
 
   socket.on("sending_signal", (payload) => {
@@ -55,15 +67,17 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log(`User Disconnected: ${socket.id}`);
-    for (const roomName in users) {
-      const room = users[roomName];
-      if (room.includes(socket.id)) {
-        users[roomName] = room.filter((id) => id !== socket.id);
-        socket.to(roomName).emit("user_left", socket.id);
-        if (users[roomName].length === 0) {
-          delete users[roomName];
-        }
-        break;
+    if (currentRoom && users[currentRoom]) {
+      const userWhoLeft = users[currentRoom].find((user) => user.id === socket.id);
+      // 해당 유저를 방에서 제거
+      users[currentRoom] = users[currentRoom].filter((user) => user.id !== socket.id);
+      // 다른 사람들에게 퇴장 알림
+      if (userWhoLeft) {
+        socket.to(currentRoom).emit("user_left", userWhoLeft);
+      }
+      // 방이 비었으면 방 정보 삭제
+      if (users[currentRoom].length === 0) {
+        delete users[currentRoom];
       }
     }
   });

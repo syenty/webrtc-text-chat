@@ -8,13 +8,20 @@ const props = defineProps({
     type: String,
     required: true,
   },
+  nickname: {
+    type: String,
+    required: true,
+  },
 });
+
+const emit = defineEmits(["leave"]);
 
 const chatMessages = ref([]);
 const chatInput = ref("");
 
 let socket = null;
 const peers = ref({}); // key: socketId, value: Peer instance
+const peerNicknames = ref({}); // key: socketId, value: nickname
 
 const STUN_SERVER = "stun:stun.l.google.com:19302";
 
@@ -25,36 +32,53 @@ onMounted(async () => {
 
   socket.on("connect", () => {
     console.log("Connected to signaling server with id:", socket.id);
-    socket.emit("join_room", props.roomName);
+    socket.emit("join_room", { roomName: props.roomName, nickname: props.nickname });
+  });
+
+  // 닉네임 중복으로 입장 실패 시
+  socket.on("join_failed", (reason) => {
+    alert(reason);
+    emit("leave"); // App.vue로 이벤트 보내서 로비로 돌아가게 함
   });
 
   // 방에 이미 있던 다른 유저들의 정보를 받음
   socket.on("all_users", (users) => {
     console.log("All users in room:", users);
-    users.forEach((userId) => {
-      const peer = createPeer(userId, socket.id);
-      peers.value[userId] = peer;
+    chatMessages.value.push({ type: "system", text: `You joined the room "${props.roomName}".` });
+    users.forEach((user) => {
+      const peer = createPeer(user.id, socket.id);
+      peers.value[user.id] = peer;
+      peerNicknames.value[user.id] = user.nickname;
     });
   });
 
   // 새로운 유저가 방에 들어왔을 때의 이벤트 처리
+  socket.on("user_joined_info", (user) => {
+    console.log(`User ${user.nickname}(${user.id}) joined the room.`);
+    chatMessages.value.push({ type: "system", text: `User "${user.nickname}" has joined.` });
+  });
+
+  // 다른 유저가 보낸 시그널을 받았을 때 (연결 요청)
   socket.on("user_joined", (payload) => {
-    console.log(`User ${payload.callerID} joined the room.`);
+    console.log(`Receiving signal from ${payload.callerID}`);
     const peer = addPeer(payload.signal, payload.callerID);
     peers.value[payload.callerID] = peer;
   });
 
+  // 내가 보낸 시그널에 대한 응답을 받았을 때
   socket.on("receiving_returned_signal", (payload) => {
     const item = peers.value[payload.id];
     item.signal(payload.signal);
   });
 
-  socket.on("user_left", (id) => {
-    console.log(`User ${id} left the room.`);
-    if (peers.value[id]) {
-      peers.value[id].destroy();
+  socket.on("user_left", (user) => {
+    console.log(`User ${user.nickname}(${user.id}) left the room.`);
+    chatMessages.value.push({ type: "system", text: `User "${user.nickname}" has left.` });
+    if (peers.value[user.id]) {
+      peers.value[user.id].destroy();
     }
-    delete peers.value[id];
+    delete peers.value[user.id];
+    delete peerNicknames.value[user.id];
   });
 });
 
@@ -96,16 +120,20 @@ function addPeer(incomingSignal, callerID) {
   return peer;
 }
 
-function setupPeerEvents(peer, userId) {
+function setupPeerEvents(peer, peerId) {
+  peer.on("connect", () => {
+    // 연결이 성립되면 상대방의 닉네임을 요청하거나, 서버를 통해 받을 수 있습니다.
+    // 현재는 user_joined_info 와 all_users 에서 미리 받아옵니다.
+  });
   peer.on("data", (data) => {
     const message = JSON.parse(data);
-    chatMessages.value.push({ sender: userId.substring(0, 6), text: message.text });
+    chatMessages.value.push({ sender: message.nickname, text: message.text });
   });
   peer.on("close", () => {
-    console.log(`Peer connection with ${userId} closed.`);
+    console.log(`Peer connection with ${peerId} closed.`);
   });
   peer.on("error", (err) => {
-    console.error(`Error with peer ${userId}:`, err);
+    console.error(`Error with peer ${peerId}:`, err);
   });
 }
 
@@ -118,6 +146,7 @@ function sendChatMessage() {
 
   const message = {
     text: chatInput.value,
+    nickname: props.nickname,
   };
 
   // 모든 peer에게 메시지 전송
@@ -127,7 +156,7 @@ function sendChatMessage() {
     }
   });
 
-  chatMessages.value.push({ sender: "Me", text: chatInput.value });
+  chatMessages.value.push({ sender: props.nickname, text: chatInput.value });
   chatInput.value = "";
 }
 </script>
@@ -137,13 +166,20 @@ function sendChatMessage() {
     <div class="chat-container">
       <h3>Room: {{ roomName }}</h3>
       <div class="chat-messages">
-        <div
-          v-for="(msg, index) in chatMessages"
-          :key="index"
-          :class="['message', msg.sender === 'Me' ? 'my-message' : 'peer-message']"
-        >
-          <strong>{{ msg.sender }}:</strong> {{ msg.text }}
-        </div>
+        <template v-for="(msg, index) in chatMessages" :key="index">
+          <div v-if="msg.type === 'system'" class="system-message">
+            {{ msg.text }}
+          </div>
+          <div
+            v-else
+            :class="['message', msg.sender === props.nickname ? 'my-message' : 'peer-message']"
+          >
+            <strong v-if="msg.sender !== props.nickname" class="sender-name"
+              >{{ msg.sender }}:</strong
+            >
+            <span class="message-text">{{ msg.text }}</span>
+          </div>
+        </template>
       </div>
       <form @submit.prevent="sendChatMessage" class="chat-input-form">
         <input v-model="chatInput" type="text" placeholder="Type a message..." />
@@ -184,11 +220,23 @@ function sendChatMessage() {
   flex-direction: column;
   gap: 0.5rem;
 }
+.system-message {
+  text-align: center;
+  color: #888;
+  font-style: italic;
+  font-size: 0.9em;
+}
 .message {
   padding: 8px 12px;
   border-radius: 8px;
   max-width: 80%;
   color: black;
+}
+.sender-name {
+  display: block;
+  font-size: 0.8em;
+  margin-bottom: 4px;
+  color: #555;
 }
 .my-message {
   background-color: #dcf8c6;
